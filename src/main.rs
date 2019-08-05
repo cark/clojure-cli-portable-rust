@@ -1,8 +1,5 @@
-use clojurecli::windows;
-//use clojurecli;
+use lib::yoh;
 
 fn main() {
-    let args = windows::get_args();
-    clojurecli::yoh();
-    println!("{:?}", args);
+    yoh();
 }
