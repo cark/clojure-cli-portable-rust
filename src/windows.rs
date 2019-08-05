@@ -1,5 +1,4 @@
-#[path = "parsing.rs"]
-mod parsing;
+mod parsing; 
 use widestring::U16CString;
 use winapi::um::processenv;
 
@@ -13,7 +12,5 @@ pub fn get_command_line() -> String {
 }
 
 pub fn get_args() -> Vec<String> {
-    let command_line = get_command_line();
-    let args_string = parsing::args_string(&command_line);    
-    parsing::args_string_to_vec(&args_string)
+    parsing::args_vec(&get_command_line())
 }
