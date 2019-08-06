@@ -19,3 +19,4 @@ path = "src/main.rs"
 [target.'cfg(windows)'.dependencies]
 widestring = "0.4.0"
 winapi = { version = "0.3.7", features = ["processenv"]}
+which = "2.0.1"

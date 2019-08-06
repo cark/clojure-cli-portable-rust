@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::env;
 use std::io;
 use std::path::PathBuf;
+use which::which;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum Flag {
@@ -39,10 +40,10 @@ pub fn main() -> () {
     let mut jvm_options : Vec<String> = vec![];
     let mut flags: HashSet<Flag> = HashSet::new();
     let mut force_cp : Option<String> = None;
-    let mut deps_data : Option<String> = None;
-    
+    let mut deps_data : Option<String> = None;    
     let args = compat::get_args();
     let mut arg_iter = args.iter().skip(1);
+    
     while let Some(arg) = arg_iter.next() {
         match arg.as_ref() { 
             "-h" | "--help" | "-?" => 
@@ -53,8 +54,22 @@ pub fn main() -> () {
                 } else {
                     insert(&mut flags, Flag::Help); 
                 },
-            "-Sdeps" => (deps_data = Some(arg_iter.next().expect("missing -Sdeps value.").to_string())),
-            "-Scp" => (force_cp = Some(arg_iter.next().expect("missing -Scp value.").to_string())),
+            "-Sdeps" => 
+                match arg_iter.next() {
+                    None => {
+                        println!("-Sdeps requires an additional parameter !");
+                        exit(1);
+                    },
+                    Some(s) => deps_data = Some(s.to_string()),
+                },
+            "-Scp" =>
+                match arg_iter.next() {
+                    None => {
+                        println!("-Scp requires an additional parameter !");
+                        exit(1);
+                    },
+                    Some(s) => force_cp = Some(s.to_string()),
+                },
             "-Spath" => insert(&mut flags, Flag::PrintClasspath),
             "-Sverbose" => insert(&mut flags, Flag::Verbose),
             "-Sdescribe" => insert(&mut flags, Flag::Describe),
@@ -79,6 +94,30 @@ pub fn main() -> () {
                     extra_args.push(arg.to_string());
                     extra_args.extend(arg_iter.map(|str| str.to_string()));
                     break;                    
+                }
+            }
+        }
+    }
+
+    let java_command : PathBuf;
+    match which::which("java") {
+        Ok(s) => (java_command = s),
+        Err(_) => {
+            match env::var("JAVA_HOME") {
+                Ok(s) => {
+                    let mut p = PathBuf::from(s);
+                    p.push("bin");
+                    match which::which_in("java", p.to_str(), "") {
+                        Ok(s) => (java_command = s),
+                        Err(_) => {
+                            println!("Couldn't find 'java'.");
+                            exit(1);
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("Couldn't find 'java'. Please set JAVA_HOME.");
+                    exit(1);
                 }
             }
         }
