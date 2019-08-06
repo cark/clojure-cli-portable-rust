@@ -17,6 +17,7 @@ use std::env;
 use std::io;
 use std::process::{Command, Stdio};
 use std::path::{Path, PathBuf};
+use std::fs;
 
 const project_version : &str = "1.10.1.466"; //.to_string(); 
 
@@ -38,9 +39,9 @@ fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
 pub fn main() -> () {
     let install_dir = current_dir().expect("Couldn't find executable directory.");
     
-    let tools_cp = PathBuf::from(install_dir)
+    let tools_cp = PathBuf::from(&install_dir)
         .join("libexec")
-        .join(format!("clojure-tools-{}.jar", project_version))
+        .join(format!("clojure-tools-{}.jar", &project_version))
         .to_str().expect("Couldn't produce a tools_cp string.")
         .to_owned();    
 
@@ -69,7 +70,8 @@ pub fn main() -> () {
                     extra_args.extend(arg_iter.map(|str| str.to_string()));
                     break;
                 } else {
-                    insert(&mut flags, Flag::Help); 
+                    flags.insert(Flag::Help);
+//                    insert(&mut flags, Flag::Help); 
                 },
             "-Sdeps" => 
                 match arg_iter.next() {
@@ -172,4 +174,18 @@ pub fn main() -> () {
         .or_else(|_| compat::get_default_config_dir())
         .expect("Couldn't determine user config directory.")
         .to_string();
+
+    // Ensure user config directory exists
+    if ! Path::new(&config_dir).exists() {
+        fs::create_dir_all(&config_dir);
+    }
+
+    // Ensure user level deps.edn exists
+    if ! Path::new(&config_dir).join("deps.edn").exists() {
+        fs::copy(Path::new(&install_dir).join("example-deps.edn"),
+                 Path::new(&config_dir).join("deps.edn"))
+            .expect(&format!("Couldn't create deps.edn in '{}'", &config_dir));
+    }
+
+   // Determine user cache directory    
 }
