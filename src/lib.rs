@@ -7,17 +7,16 @@ use windows as compat;
 #[cfg(unix)] 
 use unix as compat;
 
+extern crate which;
+
 mod help;
 
 use std::process::exit;
 use std::collections::HashSet;
 use std::env;
 use std::io;
-use which::which;
 use std::process::{Command, Stdio};
 use std::path::{Path, PathBuf};
-
-
 
 const project_version : &str = "1.10.1.466"; //.to_string(); 
 
@@ -39,10 +38,11 @@ fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
 pub fn main() -> () {
     let install_dir = current_dir().expect("Couldn't find executable directory.");
     
-    let tools_cp : &str = PathBuf::from(install_dir)
+    let tools_cp = PathBuf::from(install_dir)
         .join("libexec")
         .join(format!("clojure-tools-{}.jar", project_version))
-        .to_str().expect("Couldn't produce a tools_cp string.");    
+        .to_str().expect("Couldn't produce a tools_cp string.")
+        .to_owned();    
 
     let config_dir : String;
     
@@ -53,7 +53,7 @@ pub fn main() -> () {
     let mut all_aliases : Vec<String> = vec![];
     let mut extra_args : Vec<String> = vec![];
     let mut jvm_options : Vec<String> = vec![];
-    let mut flags: HashSet<Flag> = HashSet::new();
+    let mut flags: HashSet<Flag> = HashSet::new(); 
     let mut force_cp : Option<String> = None;
     let mut deps_data : Option<String> = None;    
     let args = compat::get_args();
@@ -159,7 +159,7 @@ pub fn main() -> () {
     if flags.contains(&Flag::ResolveTags) {
         if Path::new("deps.edn").exists() {
             exit(launch(&java_command,
-                        vec!["-Xms256m", "-classpath", tools_cp, "clojure.main", "-m",
+                        vec!["-Xms256m", "-classpath", &tools_cp, "clojure.main", "-m",
                              "clojure.tools.deps.alpha.script.resolve-tags", "--deps-file=deps.edn"]));
         } else {
             println!("deps.edn does not exist.");
@@ -169,7 +169,7 @@ pub fn main() -> () {
 
     // Determine user config directory
     config_dir = env::var("CLJ_CONFIG")
-        .or_else(|_| compat::get_default_config_dir()) 
+        .or_else(|_| compat::get_default_config_dir())
         .expect("Couldn't determine user config directory.")
         .to_string();
 }
