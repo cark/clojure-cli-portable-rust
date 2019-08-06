@@ -13,8 +13,13 @@ use std::process::exit;
 use std::collections::HashSet;
 use std::env;
 use std::io;
-use std::path::PathBuf;
 use which::which;
+use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
+
+
+
+const project_version : &str = "1.10.1.466"; //.to_string(); 
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum Flag {
@@ -33,6 +38,14 @@ fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
 
 pub fn main() -> () {
     let install_dir = current_dir().expect("Couldn't find executable directory.");
+    
+    let tools_cp : &str = PathBuf::from(install_dir)
+        .join("libexec")
+        .join(format!("clojure-tools-{}.jar", project_version))
+        .to_str().expect("Couldn't produce a tools_cp string.");    
+
+    let config_dir : String;
+    
     let mut resolve_aliases : Vec<String> = vec![];
     let mut classpath_aliases : Vec<String> = vec![];
     let mut jvm_aliases : Vec<String> = vec![];
@@ -44,9 +57,10 @@ pub fn main() -> () {
     let mut force_cp : Option<String> = None;
     let mut deps_data : Option<String> = None;    
     let args = compat::get_args();
-    let mut arg_iter = args.iter().skip(1);
     let java_command : PathBuf;
-    
+
+    // Parse arguments
+    let mut arg_iter = args.iter().skip(1);
     while let Some(arg) = arg_iter.next() {
         match arg.as_ref() { 
             "-h" | "--help" | "-?" => 
@@ -80,7 +94,7 @@ pub fn main() -> () {
             "-Srepro" => insert(&mut flags, Flag::Repro),
             "-Stree" => insert(&mut flags, Flag::Tree),
             "-Spom" => insert(&mut flags, Flag::Pom),
-            "-Srecolve-tags" => insert(&mut flags, Flag::ResolveTags),
+            "-Sresolve-tags" => insert(&mut flags, Flag::ResolveTags),
             "-Scp-jar" => insert(&mut flags, Flag::CpJar),
             arg => match arg.chars().take(2).collect::<String>().as_ref() {
                 "-J" => jvm_options.push(arg.chars().skip(2).collect()),
@@ -102,19 +116,16 @@ pub fn main() -> () {
         }
     }
 
+    // Find java
     match which::which("java") {
         Ok(s) => (java_command = s),
         Err(_) => {
             match env::var("JAVA_HOME") {
-                Ok(s) => {
-                    let mut p = PathBuf::from(s);
-                    p.push("bin");
-                    match which::which_in("java", p.to_str(), "") {
-                        Ok(s) => (java_command = s),
-                        Err(_) => {
-                            println!("Couldn't find 'java'.");
-                            exit(1);
-                        }
+                Ok(s) => match which::which_in("java", PathBuf::from(s).join("bin").to_str(), "") {
+                    Ok(s) => (java_command = s),
+                    Err(_) => {
+                        println!("Couldn't find 'java'.");
+                        exit(1);
                     }
                 }
                 Err(_) => {
@@ -125,8 +136,40 @@ pub fn main() -> () {
         }
     }
 
+    // Show help
     if flags.contains(&Flag::Help) {
         help::print();
         exit(0);
     }
+
+    // launch process child
+    fn launch(command: &Path, args: Vec<&str>) -> i32 {
+        match Command::new(command)
+            .args(args)
+            .status()
+            .expect(&format!("Failed to execute '{:?}'.", command))
+            .code()
+        {
+                None => 128,
+                Some(v) => v,
+        }
+    } 
+
+    // Execute resolve tags command
+    if flags.contains(&Flag::ResolveTags) {
+        if Path::new("deps.edn").exists() {
+            exit(launch(&java_command,
+                        vec!["-Xms256m", "-classpath", tools_cp, "clojure.main", "-m",
+                             "clojure.tools.deps.alpha.script.resolve-tags", "--deps-file=deps.edn"]));
+        } else {
+            println!("deps.edn does not exist.");
+            exit(1);
+        }
+    }
+
+    // Determine user config directory
+    config_dir = env::var("CLJ_CONFIG")
+        .or_else(|_| compat::get_default_config_dir()) 
+        .expect("Couldn't determine user config directory.")
+        .to_string();
 }

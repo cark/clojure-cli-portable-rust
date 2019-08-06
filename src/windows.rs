@@ -1,6 +1,9 @@
 mod parsing; 
 use widestring::U16CString;
 use winapi::um::processenv;
+use std::path::PathBuf;
+use std::env;
+use std::env::VarError;
 
 pub fn get_command_line() -> String {
     let u16_str: U16CString;
@@ -13,4 +16,13 @@ pub fn get_command_line() -> String {
 
 pub fn get_args() -> Vec<String> {
     parsing::args_vec(&get_command_line())
+}
+
+pub fn get_default_config_dir() -> Result<String, VarError> {
+    env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .map(| value |
+             PathBuf::from(value).join(".clojure")
+             .to_str().expect("Couldn't convert path")
+             .to_owned())
 }
