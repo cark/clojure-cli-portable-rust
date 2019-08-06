@@ -7,6 +7,8 @@ use windows as compat;
 #[cfg(unix)] 
 use unix as compat;
 
+mod help;
+
 use std::process::exit;
 use std::collections::HashSet;
 use std::env;
@@ -43,6 +45,7 @@ pub fn main() -> () {
     let mut deps_data : Option<String> = None;    
     let args = compat::get_args();
     let mut arg_iter = args.iter().skip(1);
+    let java_command : PathBuf;
     
     while let Some(arg) = arg_iter.next() {
         match arg.as_ref() { 
@@ -99,7 +102,6 @@ pub fn main() -> () {
         }
     }
 
-    let java_command : PathBuf;
     match which::which("java") {
         Ok(s) => (java_command = s),
         Err(_) => {
@@ -121,5 +123,10 @@ pub fn main() -> () {
                 }
             }
         }
+    }
+
+    if flags.contains(&Flag::Help) {
+        help::print();
+        exit(0);
     }
 }
