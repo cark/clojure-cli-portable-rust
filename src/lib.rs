@@ -46,6 +46,7 @@ pub fn main() -> () {
         .to_owned();    
 
     let config_dir : String;
+    let user_cache_dir : String;
     
     let mut resolve_aliases : Vec<String> = vec![];
     let mut classpath_aliases : Vec<String> = vec![];
@@ -188,5 +189,10 @@ pub fn main() -> () {
             .expect(&format!("Couldn't create deps.edn in '{}'", &config_dir));
     }
 
-   // Determine user cache directory    
+    // Determine user cache directory
+    user_cache_dir = env::var("CLJ_CACHE")
+        .or_else(|_| compat::get_user_cache_dir(&config_dir))
+        .expect("Couldn't determine user cache directory.")
+        .to_string();
+    
 }
