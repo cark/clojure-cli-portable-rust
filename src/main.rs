@@ -1,5 +1,5 @@
-use lib::yoh;
+use lib;
 
 fn main() {
-    yoh();
+    lib::main();
 }
