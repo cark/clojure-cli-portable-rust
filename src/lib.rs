@@ -8,6 +8,7 @@ use windows as compat;
 use unix as compat;
 
 extern crate which;
+extern crate md5;
 
 mod help;
 
@@ -19,14 +20,14 @@ use std::process::{Command};
 use std::path::{Path, PathBuf};
 use std::fs;
 
-const PROJECT_VERSION : &str = "1.10.1.466"; //.to_string(); 
+const PROJECT_VERSION : &str = "1.10.1.466"; 
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum Flag {
     PrintClasspath, Describe, Verbose, Force, Repro, Tree, Pom, ResolveTags, CpJar, Help
 }
 
-fn current_dir() -> io::Result<PathBuf> {
+fn exe_dir() -> io::Result<PathBuf> {
     let exe = env::current_exe()?; 
     let dir = exe.parent().expect("Executable must be in some directory.");
     Ok(PathBuf::from(dir))
@@ -36,8 +37,12 @@ fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
     s.insert(val); 
 }
 
+fn path_to_str(p: &Path) -> String {
+    p.to_str().expect("Error building path.").to_owned()
+}
+
 pub fn main() -> () {
-    let install_dir = current_dir().expect("Couldn't find executable directory.");
+    let install_dir = path_to_str(&exe_dir().expect("Couldn't find executable directory."));
     
     let tools_cp = PathBuf::from(&install_dir)
         .join("libexec")
@@ -47,6 +52,9 @@ pub fn main() -> () {
 
     let config_dir : String;
     let user_cache_dir : String;
+    let config_paths : Vec<String>;
+    let config_str : String;
+    let cache_dir : String;
     
     let mut resolve_aliases : Vec<String> = vec![];
     let mut classpath_aliases : Vec<String> = vec![];
@@ -58,10 +66,10 @@ pub fn main() -> () {
     let mut flags: HashSet<Flag> = HashSet::new(); 
     let mut force_cp : Option<String> = None;
     let mut deps_data : Option<String> = None;    
-    let args = compat::get_args();
     let java_command : PathBuf;
 
     // Parse arguments
+    let args = compat::get_args();
     let mut arg_iter = args.iter().skip(1);
     while let Some(arg) = arg_iter.next() {
         match arg.as_ref() { 
@@ -121,20 +129,18 @@ pub fn main() -> () {
     // Find java
     match which::which("java") {
         Ok(s) => (java_command = s),
-        Err(_) => {
-            match env::var("JAVA_HOME") {
-                Ok(s) => match which::which_in("java", PathBuf::from(s).join("bin").to_str(), "") {
-                    Ok(s) => (java_command = s),
-                    Err(_) => {
-                        println!("Couldn't find 'java'.");
-                        exit(1);
-                    }
-                }
+        Err(_) =>  match env::var("JAVA_HOME") {
+            Ok(s) => match which::which_in("java", PathBuf::from(s).join("bin").to_str(), "") {
+                Ok(s) => (java_command = s),
                 Err(_) => {
-                    println!("Couldn't find 'java'. Please set JAVA_HOME.");
+                    println!("Couldn't find 'java'.");
                     exit(1);
                 }
             }
+            Err(_) => {
+                println!("Couldn't find 'java'. Please set JAVA_HOME.");
+                exit(1);
+            }            
         }
     }
 
@@ -189,8 +195,86 @@ pub fn main() -> () {
     }
 
     // Determine user cache directory
-    user_cache_dir = env::var("CLJ_CACHE")
+    user_cache_dir = env::var("CLJ_CACHE") 
         .or_else(|_| compat::get_user_cache_dir(&config_dir))
         .expect("Couldn't determine user cache directory.")
         .to_string();
+
+    // Chain deps.edn in config paths. repro=skip config dir
+    if flags.contains(&Flag::Repro) {
+        config_paths = vec![path_to_str(&PathBuf::from(&install_dir).join("deps.edn")),
+                            "deps.edn".to_string()];         
+    } else {
+        config_paths = vec![path_to_str(&PathBuf::from(&install_dir).join("deps.edn")),
+                            path_to_str(&PathBuf::from(&config_dir).join("deps.edn")),
+                            "deps.edn".to_string()];
+    }
+    config_str = config_paths.iter()
+        .map(|s| format!("\"{}\"", s))
+        .collect::<Vec<String>>()
+        .join("'");
+
+    // Determine wether to use user or project cache
+    if Path::new("deps.edn").exists() {
+        cache_dir = ".cpcache".to_string()
+    } else {
+        cache_dir = user_cache_dir
+    }
+
+    // Construct location of cached classpath file
+    // *** added project_version to the cache_key, so we rebuild cache on version change
+    let dd = if let Some(s) = deps_data {
+        s
+    } else {
+        "".to_string()
+    };
+    let mut cache_key = [&resolve_aliases.join(""),
+                         &classpath_aliases.join(""),
+                         &all_aliases.join(""),
+                         &jvm_aliases.join(""),
+                         &main_aliases.join(""),
+                         &dd, PROJECT_VERSION].join(""); 
+    for config_path in &config_paths {
+        if PathBuf::from(&config_path).exists() {
+            cache_key.push_str(&config_path)
+        } else {
+            cache_key.push_str("NIL");
+        }
+    }
+
+    // Opting for md5
+    let cache_key_hash : String = format!("{:x}", md5::compute(cache_key)).chars().take(8).collect();
+    let base_file = path_to_str(&PathBuf::from(&cache_dir).join(&cache_key_hash));
+    let libs_file = format!("{}.libs", &base_file);
+    let cp_file = format!("{}.cp", &base_file);
+    let jvm_file = format!("{}.jvm", &base_file);
+    let main_file = format!("{}.main", &base_file);
+
+    // Print paths in verbose mode
+    if flags.contains(&Flag::Verbose) {
+        println!("version      = {}", &PROJECT_VERSION);
+        println!("install_dir  = {}", &install_dir);
+        println!("config_dir   = {}", &config_dir);
+        println!("config_paths = {}", &config_paths.join(", "));
+        println!("cache_dir    = {}", &cache_dir);
+        println!("cp_file      = {}", &cp_file);
+        println!("");
+    }
+
+    // Check for stale cache
+    let mut stale = false;
+    if flags.contains(&Flag::Force) || ! PathBuf::from(&cp_file).exists() {
+        stale = true
+    } else {
+        let cp_time = fs::metadata(&cp_file).unwrap().modified().expect("Couldn't get file modification time.");
+        for config_path in &config_paths {
+            match fs::metadata(&config_path) {
+                Ok(md) => if cp_time < md.modified().expect("Couldn't get file modification time.") {
+                    stale =  true;
+                    break;
+                }
+                Err(_) => (),
+            }
+        }
+    }
 }
