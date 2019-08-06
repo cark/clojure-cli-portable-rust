@@ -26,3 +26,10 @@ pub fn get_default_config_dir() -> Result<String, VarError> {
              .to_str().expect("Couldn't convert path")
              .to_owned())
 }
+
+pub fn get_user_cache_dir(config_dir: &str) -> Result<String,  VarError> {
+    Ok(PathBuf::from(config_dir)
+       .join(".cpcache")
+       .to_str().expect("Couldn't convert path")
+       .to_owned())
+}

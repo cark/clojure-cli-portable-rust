@@ -71,8 +71,7 @@ pub fn main() -> () {
                     extra_args.extend(arg_iter.map(|str| str.to_string()));
                     break;
                 } else {
-                    flags.insert(Flag::Help);
-//                    insert(&mut flags, Flag::Help); 
+                    insert(&mut flags, Flag::Help); 
                 },
             "-Sdeps" => 
                 match arg_iter.next() {
@@ -194,5 +193,4 @@ pub fn main() -> () {
         .or_else(|_| compat::get_user_cache_dir(&config_dir))
         .expect("Couldn't determine user cache directory.")
         .to_string();
-    
 }
