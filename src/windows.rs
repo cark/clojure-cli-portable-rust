@@ -1,9 +1,11 @@
 mod parsing; 
 use widestring::U16CString;
 use winapi::um::processenv;
-use std::path::PathBuf;
 use std::env;
 use std::env::VarError;
+use std::process::{Command};
+use std::path::{Path, PathBuf};
+use std::process::exit;
 
 pub fn get_command_line() -> String {
     let u16_str: U16CString;
@@ -32,4 +34,20 @@ pub fn get_user_cache_dir(config_dir: &str) -> Result<String,  VarError> {
        .join(".cpcache")
        .to_str().expect("Couldn't convert path")
        .to_owned())
+}
+
+fn launch(command: &Path, args: Vec<&str>) -> i32 {
+    match Command::new(command)
+        .args(args)
+        .status()
+        .expect(&format!("Failed to execute '{:?}'.", command))
+        .code()
+    {
+        None => 128,
+        Some(v) => v,
+    }
+} 
+
+pub fn exec(command: &Path, args: Vec<&str>) -> () {
+    exit(launch(command, args));
 }

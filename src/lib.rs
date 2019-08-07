@@ -27,20 +27,6 @@ enum Flag {
     PrintClasspath, Describe, Verbose, Force, Repro, Tree, Pom, ResolveTags, CpJar, Help
 }
 
-fn exe_dir() -> io::Result<PathBuf> {
-    let exe = env::current_exe()?; 
-    let dir = exe.parent().expect("Executable must be in some directory.");
-    Ok(PathBuf::from(dir))
-}
-
-fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
-    s.insert(val); 
-}
-
-fn path_to_str(p: &Path) -> String {
-    p.to_str().expect("Error building path.").to_owned()
-}
-
 pub fn main() -> () {
     let install_dir = path_to_str(&exe_dir().expect("Couldn't find executable directory."));
     
@@ -55,6 +41,8 @@ pub fn main() -> () {
     let config_paths : Vec<String>;
     let config_str : String;
     let cache_dir : String;
+    let mut tool_args : Vec<String> = vec![];
+    let cp : Option<String>;
     
     let mut resolve_aliases : Vec<String> = vec![];
     let mut classpath_aliases : Vec<String> = vec![];
@@ -150,19 +138,6 @@ pub fn main() -> () {
         exit(0);
     }
 
-    // launch process child
-    fn launch(command: &Path, args: Vec<&str>) -> i32 {
-        match Command::new(command)
-            .args(args)
-            .status()
-            .expect(&format!("Failed to execute '{:?}'.", command))
-            .code()
-        {
-                None => 128,
-                Some(v) => v,
-        }
-    } 
-
     // Execute resolve tags command
     if flags.contains(&Flag::ResolveTags) {
         if Path::new("deps.edn").exists() {
@@ -210,9 +185,10 @@ pub fn main() -> () {
                             "deps.edn".to_string()];
     }
     config_str = config_paths.iter()
-        .map(|s| format!("\"{}\"", s))
+    //        .map(|s| format!("\"{}\"", s))
+        .map(|s| format!("{}", s))
         .collect::<Vec<String>>()
-        .join("'");
+        .join(",");
 
     // Determine wether to use user or project cache
     if Path::new("deps.edn").exists() {
@@ -223,17 +199,17 @@ pub fn main() -> () {
 
     // Construct location of cached classpath file
     // *** added project_version to the cache_key, so we rebuild cache on version change
-    let dd = if let Some(s) = deps_data {
+    let dd = if let Some(s) = &deps_data {
         s
     } else {
-        "".to_string()
+        ""
     };
     let mut cache_key = [&resolve_aliases.join(""),
                          &classpath_aliases.join(""),
                          &all_aliases.join(""),
                          &jvm_aliases.join(""),
                          &main_aliases.join(""),
-                         &dd, PROJECT_VERSION].join(""); 
+                         dd, PROJECT_VERSION].join(""); 
     for config_path in &config_paths {
         if PathBuf::from(&config_path).exists() {
             cache_key.push_str(&config_path)
@@ -277,4 +253,106 @@ pub fn main() -> () {
             }
         }
     }
+
+    // make tools args if needed
+    if stale || flags.contains(&Flag::Pom) {
+        if let Some(data) = &deps_data {
+            tool_args.push("--config-data".to_string());
+            tool_args.push(data.to_string());
+        }
+        if ! resolve_aliases.is_empty() {
+            tool_args.push(format!("-R{}",resolve_aliases.join("")));
+        }
+        if ! classpath_aliases.is_empty() {
+            tool_args.push(format!("-C{}", classpath_aliases.join("")));
+        }
+        if ! jvm_aliases.is_empty() {
+            tool_args.push(format!("-J{}", jvm_aliases.join("")));
+        }
+        if ! main_aliases.is_empty() {
+            tool_args.push(format!("-M{}", main_aliases.join("")));
+        }
+        if ! all_aliases.is_empty() {
+            tool_args.push(format!("-A{}", all_aliases.join("")));
+        }
+        if let Some(_) = force_cp {
+            tool_args.push("--skip-cp".to_string());
+        }
+    }
+
+    // If stale, run make-classpath to refresh cached classpath
+    if stale && ! flags.contains(&Flag::Describe) {
+        if flags.contains(&Flag::Verbose) {
+            println!("Refreshing classpath.");
+            println!("{:?}", merge_args(vec!["-Xms256m", "-classpath", &tools_cp, "clojure.main", "-m",
+                                   "clojure.tools.deps.alpha.script.make-classpath", "--config-files", &config_str,
+                                   "--libs-file", &libs_file, "--cp-file", &cp_file, "--jvm-file", &jvm_file,
+                                   "--main-file", &main_file], &tool_args));
+        }
+        let exit_code = launch(&java_command,
+                               merge_args(vec!["-Xms256m", "-classpath", &tools_cp, "clojure.main", "-m",
+                                   "clojure.tools.deps.alpha.script.make-classpath", "--config-files", &config_str,
+                                   "--libs-file", &libs_file, "--cp-file", &cp_file, "--jvm-file", &jvm_file,
+                                   "--main-file", &main_file], &tool_args));
+        if flags.contains(&Flag::Verbose) {
+            println!("Returned from classpath with exit code '{}'", exit_code);
+        }
+        if exit_code != 0 {
+            exit(exit_code);
+        }
+    }
+
+    // Build classpath
+    if flags.contains(&Flag::Describe) {
+        cp = None;
+    } else if let Some(fcp) = &force_cp {
+        cp = Some(fcp.to_string());
+    } else {
+        cp = Some(fs::read_to_string(&cp_file).expect(&format!("Couldn't read '{}'", &cp_file)));
+    }
+
+    // The actual business
+    if flags.contains(&Flag::Pom) {
+        compat::exec(&java_command,
+                     merge_args(vec!["-Xms256m", "-classpath", &tools_cp, "clojure.main", "-m",
+                                     "clojure.tools.deps.alpha.script.generate-manifest", "--config-files",
+                                     &config_str, "--gen=pom"]
+                                , &tool_args));
+    }
+}
+
+// who'd thought merging two vectors could be so hard
+fn merge_args<'a>(args: Vec<&'a str>, more_args: &'a Vec<String>) -> Vec<&'a str> {    
+    let ma : Vec<&str> = more_args.iter().map(|s| s.as_ref()).collect();
+    let mut res = vec![];
+    res.extend(args.iter());
+    res.extend(ma.iter());
+    res
+}
+
+// launch process child
+fn launch(command: &Path, args: Vec<&str>) -> i32 {
+    match Command::new(command)
+        .args(args)
+        .status()
+        .expect(&format!("Failed to execute '{:?}'.", command))
+        .code()
+    {
+        None => 128,
+        Some(v) => v,
+    }
+} 
+
+fn exe_dir() -> io::Result<PathBuf> {
+    let exe = env::current_exe()?; 
+    let dir = exe.parent().expect("Executable must be in some directory.");
+    Ok(PathBuf::from(dir))
+}
+
+fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
+    s.insert(val); 
+}
+
+fn path_to_str(p: &Path) -> String {
+    p.to_str().expect("Error building path.").to_owned()
 }
