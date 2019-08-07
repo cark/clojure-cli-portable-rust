@@ -22,3 +22,5 @@ md5 = "0.6.1"
 widestring = "0.4.0"
 winapi = { version = "0.3.7", features = ["processenv"]}
 
+[target.'cfg(unix)'.dependencies]
+exec = "0.3.1"
