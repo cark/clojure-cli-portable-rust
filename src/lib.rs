@@ -9,8 +9,11 @@ use unix as compat;
 
 extern crate which;
 extern crate md5;
+extern crate zip;
 
 mod help;
+mod clj;
+mod cpjar;
 
 use std::process::exit;
 use std::collections::HashSet;
@@ -19,6 +22,7 @@ use std::io;
 use std::process::{Command};
 use std::path::{Path, PathBuf};
 use std::fs;
+use clj::to_clj_string;
 
 const PROJECT_VERSION : &str = "1.10.1.466"; 
 
@@ -43,6 +47,8 @@ pub fn main() -> () {
     let cache_dir : String;
     let mut tool_args : Vec<String> = vec![];
     let cp : Option<String>;
+    let mut jvm_cache_opts : Vec<String> = vec![];
+    let mut main_cache_opts : Vec<String> = vec![];
     
     let mut resolve_aliases : Vec<String> = vec![];
     let mut classpath_aliases : Vec<String> = vec![];
@@ -308,7 +314,8 @@ pub fn main() -> () {
     } else if let Some(fcp) = &force_cp {
         cp = Some(fcp.to_string());
     } else {
-        cp = Some(fs::read_to_string(&cp_file).expect(&format!("Couldn't read '{}'", &cp_file)));
+        cp = Some(cpjar::file_to_cp(&cp_file, flags.contains(&Flag::CpJar)));
+        //Some(fs::read_to_string(&cp_file).expect(&format!("Couldn't read '{}'", &cp_file)));
     }
 
     // The actual business
@@ -318,6 +325,48 @@ pub fn main() -> () {
                                      "clojure.tools.deps.alpha.script.generate-manifest", "--config-files",
                                      &config_str, "--gen=pom"]
                                 , &tool_args));
+    } else if flags.contains(&Flag::PrintClasspath) {
+        println!("{}", &cp.expect("cp variable was None !"));
+    } else if flags.contains(&Flag::Describe) {
+        let mut path_vector = vec![];
+        for config_path in &config_paths {
+            if PathBuf::from(&config_path).exists() {
+                path_vector.push(to_clj_string(&config_path));
+            }
+        }
+        let path_vector_string = path_vector.join(" ");
+        println!("{{:version {}
+ :config-files [{}]
+ :install-dir {}
+ :config-dir {}
+ :cache-dir {}
+ :force {}
+ :repro {}
+ :resolve-aliases {}
+ :classpath-aliases {}
+ :jvm-aliases {}
+ :main-aliases {}
+ :all-aliases {}}}", to_clj_string(&PROJECT_VERSION), &path_vector_string, to_clj_string(&install_dir), to_clj_string(&config_dir),
+                 to_clj_string(&cache_dir), flags.contains(&Flag::Force), flags.contains(&Flag::Repro),
+                 to_clj_string(&resolve_aliases.join("")), to_clj_string(&classpath_aliases.join("")),
+                 to_clj_string(&jvm_aliases.join("")), to_clj_string(&main_aliases.join("")),
+                 to_clj_string(&all_aliases.join("")));
+    } else if flags.contains(&Flag::Tree) {
+        compat::exec(&java_command,
+                     vec!["-Xms256m", "-classpath", &tools_cp, "clojure.main", "-m",
+                          "clojure.tools.deps.alpha.script.print-tree", "--libs-file", &libs_file]);
+    } else {
+        // let's do some clojure !
+        if let Ok(s) = fs::read_to_string(jvm_file) {
+            jvm_cache_opts.extend(s.split(" ").map(|s| s.to_string()));
+        }
+        if let Ok(s) = fs::read_to_string(main_file) {
+            main_cache_opts.extend(s.split(" ").map(|s| s.to_string()));
+        }
+        compat::exec(&java_command,
+                     [jvm_cache_opts, jvm_options,
+                      vec![format!("-Dclojure.libfile={}", libs_file), "-classpath".to_string(), cp.unwrap(), "clojure.main".to_string()],
+                      main_cache_opts, extra_args].concat().iter().map(|s| s as &str).collect());
     }
 }
 
@@ -356,3 +405,4 @@ fn insert(s : &mut HashSet<Flag>, val : Flag) -> () {
 fn path_to_str(p: &Path) -> String {
     p.to_str().expect("Error building path.").to_owned()
 }
+

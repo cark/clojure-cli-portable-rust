@@ -51,3 +51,5 @@ fn launch(command: &Path, args: Vec<&str>) -> i32 {
 pub fn exec(command: &Path, args: Vec<&str>) -> () {
     exit(launch(command, args));
 }
+
+pub const PATH_LIST_SEPARATOR : &str = ";";

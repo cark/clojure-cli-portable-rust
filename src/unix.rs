@@ -32,3 +32,4 @@ pub fn exec(command: &Path, args: Vec<&str>) -> () {
     println!("Error executing '{:?}' : '{}'", command, err);
 }
 
+pub const PATH_LIST_SEPARATOR : &str = ":";
