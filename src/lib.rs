@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use clj::to_clj_string;
 
-const PROJECT_VERSION : &str = "1.10.1.466"; 
+const PROJECT_VERSION : &str = env!("PROJECT_VERSION"); 
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum Flag {

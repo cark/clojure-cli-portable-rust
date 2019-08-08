@@ -1,0 +1,56 @@
+#!/bin/bash
+function check {
+    if [ $? -ne 0 ]
+    then
+	echo -e "\e[91m!!!!!!!!!!!!! ERROR : $1 !!!!!!!!!!!!!\e[0m"
+	popd > /dev/null
+	exit 1
+    fi    
+}
+
+function p {
+    echo -e "\e[93m**** $@ \e[0m"
+}
+		   
+script_dir=$(dirname $(readlink -f $0))
+pushd . > /dev/null
+
+cd $script_dir/..
+version="`cat version.txt | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'`"
+output_dir=out/linux/clojure-cli
+
+p Linux build
+#clean output dir
+cargo clean
+rm -rf out/linux
+
+# compile
+cargo build --release
+check 'COMPILE ERROR'
+
+#strip
+strip target/release/clojure
+check 'STRIP ERROR'
+
+# #compress exe
+upx target/release/clojure
+check 'UPX ERROR'
+
+# package
+p Packaging...
+mkdir -p $output_dir/libexec
+cp clojure-tools/clojure-tools-$version.jar $output_dir/libexec
+cp clojure-tools/*.edn $output_dir
+cp clojure-tools/clj $output_dir
+cp resource/install.sh $output_dir
+mv target/release/clojure $output_dir
+   
+# zip
+p Zipping...
+cd out/linux
+zip -r clojure-cli-linux-$version.zip clojure-cli/*
+check 'ZIP ERROR'
+cd ..
+
+popd > /dev/null
+exit 0
