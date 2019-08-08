@@ -15,16 +15,12 @@ cd ..
 set /p version=<version.txt
 set output-dir=out\win\clojure-cli
 
-REM nimble install zip
-nimble install zip -y
-call :check NIMBLE ERROR ERROR
-
 REM Compile
-call script\compile version
+cargo build --release
 call :check COMPILE ERROR
 
 REM upx compression
-upx clojure.exe
+upx target\release\clojure.exe
 call :check UPX ERROR
 
 REM download
@@ -48,7 +44,7 @@ md %output-dir%\libexec
 copy ClojureTools\*.jar %output-dir%\libexec
 copy ClojureTools\*.edn %output-dir%
 copy script\clj.cmd %output-dir%
-move /y clojure.exe %output-dir%
+move /y target\release\clojure.exe %output-dir%
 cd out\win
 
 REM zip
