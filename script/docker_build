@@ -17,16 +17,18 @@ pushd . > /dev/null
 
 cd $script_dir/..
 
+cargo clean
+
 # chmod a+rwx -R out/
 # rm -rf out/
 mkdir dockerout/
 
 p Building the docker image
-docker build --tag=clojureclibuild .
+docker build --tag=clojureclibuildrust .
 check 'Error building docker image'
 
 p Building our project
-docker run --rm -v $script_dir/../dockerout:/clojure-cli-portable/out/:z clojureclibuild script/build_all 
+docker run --rm -v $script_dir/../dockerout:/portable-clojure-cli-rust/out/:z clojureclibuildrust script/build_all 
 check 'Error building our project'
 
 popd > /dev/null
